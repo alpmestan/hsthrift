@@ -40,6 +40,11 @@ module Foreign.CPP.HsStruct.Types
   ) where
 
 import Control.DeepSeq (NFData)
+#if MIN_VERSION_aeson(2,0,0)
+import Data.Aeson.KeyMap (KeyMap)
+import qualified Data.Aeson.KeyMap as KM
+import qualified Data.Aeson.Key as KM
+#endif
 import Data.Aeson (Value(..))
 import Data.ByteString (ByteString, packCStringLen)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
@@ -757,7 +762,11 @@ instance (Addressable k, Eq k, Hashable k, Storable k)
   peekWith f p = HsHashMap <$> peekMapWith HashMap.empty HashMap.insert peek f p
 
 newtype HsObject v = HsObject
+#if MIN_VERSION_aeson(2,0,0)
+  { hsObject :: KeyMap v
+#else
   { hsObject :: HashMap Text v
+#endif
   }
 
 $(deriveMarshallableUnsafe "HsMapStringInt" [t| HsObject Int |])
@@ -775,9 +784,20 @@ instance Addressable (HsObject v) where
 
 instance StorableContainer HsObject where
   pokeWith = notPokeable "HsObject"
-  peekWith f p = HsObject <$> peekMapWith HashMap.empty HashMap.insert fk f p
+  peekWith f p = HsObject <$> peekMapWith emptyMap insertMap fk f p
     where
+#if MIN_VERSION_aeson(2,0,0)
+    fk = fmap (KM.fromText . hsText) . peek
+#else
     fk = fmap hsText . peek
+#endif
+    emptyMap = mempty
+    insertMap =
+#if MIN_VERSION_aeson(2,0,0)
+      KM.insert
+#else
+      HashMap.insert
+#endif
 
 -- HsJSON
 newtype HsJSON = HsJSON
@@ -883,7 +903,12 @@ instance Constructible (HsObject HsJSON) where
     withCxxObject (HsArray (Vector.fromList vals)) $ \vals_p ->
       c_constructHsObjectJSON ptr keys_p vals_p
     where
-      (keys, vals) = unzip $ HashMap.toList m
+      (keys, vals) = unzip $
+#if MIN_VERSION_aeson(2,0,0)
+        map (\(k, v) -> (KM.toText k, v)) $ KM.toList m
+#else
+        HashMap.toList m
+#endif
 
 instance Constructible HsJSON where
   newValue (HsJSON _val) = error $ "HsStruct.HsJSON cannot be built on heap"
